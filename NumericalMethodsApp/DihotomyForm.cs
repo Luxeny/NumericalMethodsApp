@@ -1,7 +1,8 @@
-﻿using System;
+using System;
 using System.Data;
 using System.Windows.Forms;
 using System.Windows.Forms.DataVisualization.Charting;
+using System.Globalization;
 
 namespace DichotomyApp
 {
@@ -16,15 +17,37 @@ namespace DichotomyApp
         {
             try
             {
-                string expr = txtFunction.Text.Replace("x", x.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                string expr = txtFunction.Text
+                    .Replace("x", x.ToString(CultureInfo.InvariantCulture))
+                    .Replace(" ", "");
+                
+                expr = expr.Replace("sin", "Math.Sin")
+                          .Replace("cos", "Math.Cos")
+                          .Replace("tan", "Math.Tan")
+                          .Replace("atan", "Math.Atan")
+                          .Replace("exp", "Math.Exp")
+                          .Replace("log", "Math.Log")
+                          .Replace("sqrt", "Math.Sqrt")
+                          .Replace("abs", "Math.Abs")
+                          .Replace("pow", "Math.Pow");
+                
+                if (expr.Contains("^"))
+                {
+                    var parts = expr.Split('^');
+                    if (parts.Length == 2)
+                    {
+                        expr = $"Math.Pow({parts[0]},{parts[1]})";
+                    }
+                }
+
                 DataTable dt = new DataTable();
                 var result = dt.Compute(expr, "");
                 return Convert.ToDouble(result);
             }
-            catch
+            catch (Exception ex)
             {
-                MessageBox.Show("Ошибка в формуле!");
-                return 0;
+                MessageBox.Show($"Ошибка в формуле: {ex.Message}");
+                return double.NaN;
             }
         }
 
@@ -36,35 +59,74 @@ namespace DichotomyApp
                 double b = double.Parse(txtB.Text);
                 double eps = double.Parse(txtE.Text);
 
-                double delta = eps / 2;
-                double x1, x2;
-
-                while (Math.Abs(b - a) > eps)
+                double fa = EvaluateFunction(a);
+                double fb = EvaluateFunction(b);
+                
+                if (double.IsNaN(fa) || double.IsNaN(fb))
+                    return;
+                
+                if (fa * fb >= 0)
                 {
-                    x1 = (a + b - delta) / 2;
-                    x2 = (a + b + delta) / 2;
-
-                    if (EvaluateFunction(x1) < EvaluateFunction(x2))
-                        b = x2;
-                    else
-                        a = x1;
+                    MessageBox.Show("Функция должна иметь разные знаки на концах интервала [a,b]!");
+                    return;
                 }
 
-                double xmin = (a + b) / 2;
-                double fmin = EvaluateFunction(xmin);
+                double x0 = 0;
+                int iterations = 0;
+                const int maxIterations = 1000;
 
-                lblResult.Text = $"Минимум: x = {xmin:F4}, f(x) = {fmin:F4}";
+                while (Math.Abs(b - a) > eps && iterations < maxIterations)
+                {
+                    x0 = (a + b) / 2;
+                    double fx0 = EvaluateFunction(x0);
+
+                    if (double.IsNaN(fx0))
+                        return;
+
+                    if (Math.Abs(fx0) < eps)
+                        break;
+
+                    if (fa * fx0 < 0)
+                        b = x0;
+                    else
+                    {
+                        a = x0;
+                        fa = fx0;
+                    }
+
+                    iterations++;
+                }
+
+                if (iterations >= maxIterations)
+                {
+                    MessageBox.Show("Достигнуто максимальное количество итераций!");
+                }
+
+                double root = (a + b) / 2;
+                double froot = EvaluateFunction(root);
+
+                if (double.IsNaN(froot))
+                    return;
+
+                lblResult.Text = $"Корень: x = {root:F6}, f(x) = {froot:E6}";
 
                 chart1.Series[0].Points.Clear();
-                for (double x = a - 2; x <= b + 2; x += 0.1)
-                    chart1.Series[0].Points.AddXY(x, EvaluateFunction(x));
+                double step = (b - a + 4) / 100;
+                for (double x = a - 2; x <= b + 2; x += step)
+                {
+                    double y = EvaluateFunction(x);
+                    if (!double.IsNaN(y) && !double.IsInfinity(y))
+                        chart1.Series[0].Points.AddXY(x, y);
+                }
 
                 chart1.Series[1].Points.Clear();
-                chart1.Series[1].Points.AddXY(xmin, fmin);
+                chart1.Series[1].Points.AddXY(root, froot);
+                
+                chart1.Series[1].Points.AddXY(root, 0);
             }
-            catch
+            catch (Exception ex)
             {
-                MessageBox.Show("Ошибка ввода!");
+                MessageBox.Show($"Ошибка ввода: {ex.Message}");
             }
         }
 
@@ -77,6 +139,14 @@ namespace DichotomyApp
             lblResult.Text = "";
             chart1.Series[0].Points.Clear();
             chart1.Series[1].Points.Clear();
+        }
+
+        private void DihotomyForm_Load(object sender, EventArgs e)
+        {
+            txtFunction.Text = "sin(x)";
+            txtA.Text = "1";
+            txtB.Text = "3";
+            txtE.Text = "0.0001";
         }
     }
 }
